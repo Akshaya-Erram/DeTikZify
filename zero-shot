@@ -1,0 +1,59 @@
+!pip uninstall clip torch -y  # Clean slate
+!pip install torch==1.7.1+cu110 torchvision==0.8.2+cu110 -f https://download.pytorch.org/whl/torch_stable.html
+!pip install git+https://github.com/openai/CLIP.git
+# First cell: Install packages
+!pip uninstall clip -y  # Remove if previously installed incorrectly
+!pip install ftfy regex tqdm
+!pip install git+https://github.com/openai/CLIP.git  # Original CLIP from GitHub
+!pip install trimesh numpy
+import torch
+import clip
+import numpy as np
+import trimesh
+from IPython.display import display
+
+# Initialize CLIP
+device = "cuda" if torch.cuda.is_available() else "cpu"
+model, preprocess = clip.load("ViT-B/32", device=device)
+
+def generate_3d_from_text(text, resolution=64, threshold=0.7):
+    # 1. Process text with CLIP
+    text_input = clip.tokenize([text]).to(device)
+    with torch.no_grad():
+        text_features = model.encode_text(text_input)
+
+    # 2. Create more organic 3D shapes
+    coords = np.indices((resolution, resolution, resolution))
+    x, y, z = coords[0], coords[1], coords[2]
+
+    # Base shape (sphere + noise)
+    radius = resolution/3
+    sphere = ((x-resolution/2)**2 + (y-resolution/2)**2 + (z-resolution/2)**2) < radius**2
+    noise = np.random.rand(resolution, resolution, resolution)
+    voxels = np.logical_and(sphere, noise > threshold)
+
+    # 3. Convert to mesh (updated for new trimesh)
+    try:
+        # New versions return a Trimesh object directly
+        mesh = trimesh.voxel.ops.matrix_to_marching_cubes(voxels)
+    except TypeError:
+        # Fallback for older versions
+        vertices, faces = trimesh.voxel.ops.matrix_to_marching_cubes(voxels)
+        mesh = trimesh.Trimesh(vertices=vertices, faces=faces)
+
+    # 4. Process mesh
+    mesh = mesh.smoothed(iterations=3)  # Better than filter_laplacian
+    mesh.remove_degenerate_faces()
+
+    # 5. Display and export
+    print(f"Generated: '{text}' (Resolution: {resolution}, Threshold: {threshold})")
+    display(mesh.show())
+
+    # Export options
+    mesh.export("output.obj")
+    mesh.export("output.glb")
+
+    return mesh
+
+# Generate with better parameters
+generate_3d_from_text("a futuristic chair", resolution=80, threshold=0.65)
